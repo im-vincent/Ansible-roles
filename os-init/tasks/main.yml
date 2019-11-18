@@ -1,19 +1,25 @@
----
-# author: lework
+- name: Set timezone to Asia/Shanghai
+  timezone:
+    name: Asia/Shanghai
 
-- block:
-  - name: Ensure ntp packages are installed.
-    yum: name=ntp state=installed
+- name: Install a list of packages
+  yum:
+    name:
+      - ntp
+    state: installed
 
-  - name: Update time on server.
-    shell: ntpdate 0.asia.pool.ntp.org && hwclock --systohc
-    ignore_errors: true
-    
-  - name: Change ntpd server on ntp.conf.
-    template: src=ntp.conf.j2 dest=/etc/ntp.conf backup=yes
+- name: Update time on server.
+  shell: ntpdate 0.asia.pool.ntp.org && hwclock --systohc
+  ignore_errors: true
+
+- name: Change ntpd server on ntp.conf.
+  template:
+    src: ntp.conf.j2
+    dest: /etc/ntp.conf
+    backup: yes
     notify: restart ntpd
   tags: ntp
-  
+
 - name: Change nofile limits.
   lineinfile: dest=/etc/security/limits.conf line={{ item }}
   with_items:
@@ -22,50 +28,49 @@
     - '* hard nofile 165535'
   tags: limits
 
-- name: Shutdwon selinux.
-  replace: dest=/etc/selinux/config regexp=^SELINUX=enforcing replace=SELINUX=disabled
-  tags: selinux
-  
 - block:
-  - name: Shutdown transparent hugepage.
-    shell: echo never >> /sys/kernel/mm/transparent_hugepage/enabled && echo never >>  /sys/kernel/mm/transparent_hugepage/defrag
-    
-  - lineinfile: dest=/etc/rc.local line={{ item }}
-    with_items:
-     - echo never >> /sys/kernel/mm/transparent_hugepage/enabled
-     - echo never >> /sys/kernel/mm/transparent_hugepage/defrag
+    - name: Shutdwon selinux.
+      shell: setenforce 0 || true
+    - replace: dest=/etc/selinux/config regexp=^SELINUX=enforcing replace=SELINUX=disabled
+  tags: selinux
+
+- block:
+    - name: Shutdown transparent hugepage.
+      shell: echo never >> /sys/kernel/mm/transparent_hugepage/enabled && echo never >>  /sys/kernel/mm/transparent_hugepage/defrag
+
+    - lineinfile: dest=/etc/rc.local line={{ item }}
+      with_items:
+        - echo never >> /sys/kernel/mm/transparent_hugepage/enabled
+        - echo never >> /sys/kernel/mm/transparent_hugepage/defrag
   tags: hugepage
-  
-- name: Shutdown iptables.
-  shell: chkconfig iptables off && /etc/init.d/iptables stop
-  tags: iptables
-  
-- name: Ensure gcc packages are installed.
-  yum:
-    name: "{{ item }}"
-    state: installed
-  with_items:
-    - gcc
-    - gcc-c++
-    - libtool
-    - make
-    - automake
-  tags: gcc
-  
+
 - name: Set vm.overcommit_memory to 1 in /etc/sysctl.conf.
   sysctl:
-   name: vm.overcommit_memory
-   value: 1
-   state: present
+    name: vm.overcommit_memory
+    value: 1
+    state: present
   tags: overcommit_memory
 
 - name: Set vm.swappiness to 1 in /etc/sysctl.conf.
   sysctl:
-   name: vm.swappiness
-   value: 1
-   state: present
+    name: vm.swappiness
+    value: 1
+    state: present
   tags: swappiness
 
 - name : update bash
   yum : name=bash state=latest
-  
+
+- name: Shutdown iptables.
+  shell: chkconfig iptables off && /etc/init.d/iptables stop
+  when:
+    - ansible_facts['distribution'] == "CentOS"
+    - ansible_distribution_major_version == "6"
+  tags: iptables
+
+- name: Shutdown firewall.
+  shell: systemctl disable firewalld && systemctl stop firewalld
+  when:
+    - ansible_facts['distribution'] == "CentOS"
+    - ansible_distribution_major_version == "7"
+  tags: firewall
